@@ -34,10 +34,9 @@ along with this program; see the file COPYING. If not, see
 #include <sys/wait.h>
 
 #include <ps5/kernel.h>
-#include <ps5/klog.h>
-#include <ps5/mdbg.h>
 
 #include "elfldr.h"
+#include "log.h"
 #include "pt.h"
 
 
@@ -75,10 +74,6 @@ typedef struct elfldr_ctx {
 static const char* SceSpZeroConf = "/system/vsh/app/NPXS40112/eboot.bin";
 
 
-int sceKernelSpawn(int *pid, int dbg, const char *path, char *root,
-		   const char* argv[]);
-
-
 /**
 * Parse a R_X86_64_RELATIVE relocatable.
 **/
@@ -97,7 +92,7 @@ r_relative(elfldr_ctx_t *ctx, Elf64_Rela* rela) {
  * Parse a PT_LOAD program header.
  **/
 static int
-pt_load(elfldr_ctx_t *ctx, Elf64_Phdr *phdr) {
+data_load(elfldr_ctx_t *ctx, Elf64_Phdr *phdr) {
   void* data = ctx->base_mirror + phdr->p_vaddr;
 
   if(!phdr->p_memsz) {
@@ -111,64 +106,6 @@ pt_load(elfldr_ctx_t *ctx, Elf64_Phdr *phdr) {
   memcpy(data, ctx->elf+phdr->p_offset, phdr->p_filesz);
 
   return 0;
-}
-
-
-/**
- * Reload a PT_LOAD program header with executable permissions.
- **/
-static int
-pt_reload(elfldr_ctx_t *ctx, Elf64_Phdr *phdr) {
-  intptr_t addr = ctx->base_addr + phdr->p_vaddr;
-  void* data = ctx->base_mirror + phdr->p_vaddr;
-  size_t memsz = ROUND_PG(phdr->p_memsz);
-  int prot = PFLAGS(phdr->p_flags);
-  int alias_fd = -1;
-  int shm_fd = -1;
-  int error = 0;
-
-  // Create shm with executable permissions.
-  if((shm_fd=pt_jitshm_create(ctx->pid, 0, memsz,
-			      prot | PROT_READ | PROT_WRITE)) < 0) {
-    pt_perror(ctx->pid, "pt_jitshm_create");
-    error = -1;
-  }
-
-  // Map shm into an executable address space.
-  else if((addr=pt_mmap(ctx->pid, addr, memsz, prot,
-			MAP_FIXED | MAP_PRIVATE,
-			shm_fd, 0)) == -1) {
-    pt_perror(ctx->pid, "pt_mmap");
-    error = -1;
-  }
-
-  // Create an shm alias fd with write permissions.
-  else if((alias_fd=pt_jitshm_alias(ctx->pid, shm_fd,
-				    PROT_READ | PROT_WRITE)) < 0) {
-    pt_perror(ctx->pid, "pt_jitshm_alias");
-    error = -1;
-  }
-
-  // Map shm alias into a writable address space.
-  else if((addr=pt_mmap(ctx->pid, 0, memsz, PROT_READ | PROT_WRITE,
-			MAP_SHARED, alias_fd, 0)) == -1) {
-    pt_perror(ctx->pid, "pt_mmap");
-    error = -1;
-  }
-
-  // Resore data
-  else {
-    if(mdbg_copyin(ctx->pid, data, addr, memsz)) {
-      klog_perror("mdbg_copyin");
-      error = -1;
-    }
-    pt_munmap(ctx->pid, addr, memsz);
-  }
-
-  pt_close(ctx->pid, alias_fd);
-  pt_close(ctx->pid, shm_fd);
-
-  return error;
 }
 
 
@@ -238,20 +175,20 @@ elfldr_load(pid_t pid, uint8_t *elf) {
     ctx.base_addr = min_vaddr;
     flags |= MAP_FIXED;
   } else {
-    klog_puts("elfldr_load: ELF type not supported");
+    LOG_PUTS("elfldr_load: ELF type not supported");
+    return 0;
+  }
+
+  if(!(ctx.base_mirror=malloc(ctx.base_size))) {
+    LOG_PERROR("malloc");
     return 0;
   }
 
   // Reserve an address space of sufficient size.
   if((ctx.base_addr=pt_mmap(pid, ctx.base_addr, ctx.base_size, prot,
 			    flags, -1, 0)) == -1) {
-    pt_perror(pid, "pt_mmap");
-    return 0;
-  }
-  if((ctx.base_mirror=mmap(0, ctx.base_size, prot, flags,
-			   -1, 0)) == MAP_FAILED) {
-    pt_munmap(pid, ctx.base_addr, ctx.base_size);
-    klog_perror("mmap");
+    LOG_PT_PERROR(pid, "pt_mmap");
+    free(ctx.base_mirror);
     return 0;
   }
 
@@ -259,7 +196,7 @@ elfldr_load(pid_t pid, uint8_t *elf) {
   for(int i=0; i<ehdr->e_phnum && !error; i++) {
     switch(phdr[i].p_type) {
     case PT_LOAD:
-      error = pt_load(&ctx, &phdr[i]);
+      error = data_load(&ctx, &phdr[i]);
       break;
     }
   }
@@ -280,8 +217,8 @@ elfldr_load(pid_t pid, uint8_t *elf) {
     }
   }
 
-  if(mdbg_copyin(ctx.pid, ctx.base_mirror, ctx.base_addr, ctx.base_size)) {
-    klog_perror("mdbg_copyin");
+  if(pt_copyin(ctx.pid, ctx.base_mirror, ctx.base_addr, ctx.base_size)) {
+    LOG_PERROR("pt_copyin");
     error = 1;
   }
 
@@ -292,23 +229,29 @@ elfldr_load(pid_t pid, uint8_t *elf) {
     }
 
     if(phdr[i].p_flags & PF_X) {
-      error = pt_reload(&ctx, &phdr[i]);
+      if(kernel_mprotect(pid, ctx.base_addr + phdr[i].p_vaddr,
+                         ROUND_PG(phdr[i].p_memsz),
+                         PFLAGS(phdr[i].p_flags))) {
+	LOG_PERROR("kernel_mprotect");
+	error = 1;
+      }
     } else {
       if(pt_mprotect(pid, ctx.base_addr + phdr[i].p_vaddr,
 		     ROUND_PG(phdr[i].p_memsz),
 		     PFLAGS(phdr[i].p_flags))) {
-	pt_perror(pid, "pt_mprotect");
+	LOG_PT_PERROR(pid, "pt_mprotect");
 	error = 1;
       }
     }
   }
 
   if(pt_msync(pid, ctx.base_addr, ctx.base_size, MS_SYNC)) {
-    pt_perror(pid, "pt_msync");
+    LOG_PT_PERROR(pid, "pt_msync");
     error = 1;
   }
 
-  munmap(ctx.base_mirror, ctx.base_size);
+  free(ctx.base_mirror);
+
   if(error) {
     pt_munmap(pid, ctx.base_addr, ctx.base_size);
     return 0;
@@ -331,48 +274,48 @@ elfldr_payload_args(pid_t pid) {
 
   if((buf=pt_mmap(pid, 0, PAGE_SIZE, PROT_READ | PROT_WRITE,
 		  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0)) == -1) {
-    pt_perror(pid, "pt_mmap");
+    LOG_PT_PERROR(pid, "pt_mmap");
     return 0;
   }
 
   if((master_sock=pt_socket(pid, AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
-    pt_perror(pid, "pt_socket");
+    LOG_PT_PERROR(pid, "pt_socket");
     return 0;
   }
 
-  mdbg_setint(pid, buf+0x00, 20);
-  mdbg_setint(pid, buf+0x04, IPPROTO_IPV6);
-  mdbg_setint(pid, buf+0x08, IPV6_TCLASS);
-  mdbg_setint(pid, buf+0x0c, 0);
-  mdbg_setint(pid, buf+0x10, 0);
-  mdbg_setint(pid, buf+0x14, 0);
+  pt_setint(pid, buf+0x00, 20);
+  pt_setint(pid, buf+0x04, IPPROTO_IPV6);
+  pt_setint(pid, buf+0x08, IPV6_TCLASS);
+  pt_setint(pid, buf+0x0c, 0);
+  pt_setint(pid, buf+0x10, 0);
+  pt_setint(pid, buf+0x14, 0);
   if(pt_setsockopt(pid, master_sock, IPPROTO_IPV6, IPV6_2292PKTOPTIONS, buf, 24)) {
-    pt_perror(pid, "pt_setsockopt");
+    LOG_PT_PERROR(pid, "pt_setsockopt");
     return 0;
   }
 
   if((victim_sock=pt_socket(pid, AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
-    pt_perror(pid, "pt_socket");
+    LOG_PT_PERROR(pid, "pt_socket");
     return 0;
   }
 
-  mdbg_setint(pid, buf+0x00, 0);
-  mdbg_setint(pid, buf+0x04, 0);
-  mdbg_setint(pid, buf+0x08, 0);
-  mdbg_setint(pid, buf+0x0c, 0);
-  mdbg_setint(pid, buf+0x10, 0);
+  pt_setint(pid, buf+0x00, 0);
+  pt_setint(pid, buf+0x04, 0);
+  pt_setint(pid, buf+0x08, 0);
+  pt_setint(pid, buf+0x0c, 0);
+  pt_setint(pid, buf+0x10, 0);
   if(pt_setsockopt(pid, victim_sock, IPPROTO_IPV6, IPV6_PKTINFO, buf, 20)) {
-    pt_perror(pid, "pt_setsockopt");
+    LOG_PT_PERROR(pid, "pt_setsockopt");
     return 0;
   }
 
   if(kernel_overlap_sockets(pid, master_sock, victim_sock)) {
-    klog_puts("kernel_overlap_sockets failed");
+    LOG_PUTS("kernel_overlap_sockets failed");
     return 0;
   }
 
   if(pt_pipe(pid, buf)) {
-    pt_perror(pid, "pt_pipe");
+    LOG_PT_PERROR(pid, "pt_pipe");
     return 0;
   }
   pipe0 = pt_getint(pid, buf);
@@ -383,25 +326,19 @@ elfldr_payload_args(pid_t pid) {
   intptr_t rwpair     = buf + 0x200;
   intptr_t kpipe_addr = kernel_get_proc_file(pid, pipe0);
   intptr_t payloadout = buf + 0x300;
+  intptr_t getpid      = pt_resolve(pid, "HoLVWNanBBc");
 
-  // sys_dynlib_dlsym is invoked at <sceKernelDlsym+4>: e8 xx xx xx xx ; call rel32
-  intptr_t dlsym = pt_resolve(pid, "LwG8g3niqwA") + 4;
-  int32_t  rel32 = 0;
-  mdbg_copyout(pid, dlsym+1, &rel32, sizeof(rel32));
-  dlsym += rel32;
-  dlsym += 5; // length of the call instruction
-
-  mdbg_setlong(pid, args + 0x00, dlsym);
-  mdbg_setlong(pid, args + 0x08, rwpipe);
-  mdbg_setlong(pid, args + 0x10, rwpair);
-  mdbg_setlong(pid, args + 0x18, kpipe_addr);
-  mdbg_setlong(pid, args + 0x20, KERNEL_ADDRESS_DATA_BASE);
-  mdbg_setlong(pid, args + 0x28, payloadout);
-  mdbg_setint(pid, rwpipe + 0, pipe0);
-  mdbg_setint(pid, rwpipe + 4, pipe1);
-  mdbg_setint(pid, rwpair + 0, master_sock);
-  mdbg_setint(pid, rwpair + 4, victim_sock);
-  mdbg_setint(pid, payloadout, 0);
+  pt_setlong(pid, args + 0x00, getpid);
+  pt_setlong(pid, args + 0x08, rwpipe);
+  pt_setlong(pid, args + 0x10, rwpair);
+  pt_setlong(pid, args + 0x18, kpipe_addr);
+  pt_setlong(pid, args + 0x20, KERNEL_ADDRESS_DATA_BASE);
+  pt_setlong(pid, args + 0x28, payloadout);
+  pt_setint(pid, rwpipe + 0, pipe0);
+  pt_setint(pid, rwpipe + 4, pipe1);
+  pt_setint(pid, rwpair + 0, master_sock);
+  pt_setint(pid, rwpair + 4, victim_sock);
+  pt_setint(pid, payloadout, 0);
 
   return args;
 }
@@ -412,66 +349,32 @@ elfldr_payload_args(pid_t pid) {
  **/
 static int
 elfldr_prepare_exec(pid_t pid, uint8_t *elf) {
-  uint16_t call_rax = 0xd0ff;
-  uint16_t org_inst;
   intptr_t entry;
   intptr_t args;
   struct reg r;
 
   if(pt_getregs(pid, &r)) {
-    klog_perror("pt_getregs");
+    LOG_PERROR("pt_getregs");
     return -1;
   }
 
   if(!(entry=elfldr_load(pid, elf))) {
-    klog_puts("elfldr_load failed");
+    LOG_PUTS("elfldr_load failed");
     return -1;
   }
 
   if(!(args=elfldr_payload_args(pid))) {
-    klog_puts("elfldr_payload_args failed");
+    LOG_PUTS("elfldr_payload_args failed");
     return -1;
   }
 
-  // backup next instruction
-  if(mdbg_copyout(pid, r.r_rip, &org_inst, sizeof(org_inst))) {
-    perror("mdbg_copyout");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
-    return -1;
-  }
-
-  // replace next instruction with a call to rax
-  if(mdbg_copyin(pid, &call_rax, r.r_rip, sizeof(call_rax))) {
-    perror("mdbg_copyin");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
-    return -1;
-  }
-
-  r.r_rax = entry;
+  pt_setlong(pid, r.r_rsp-8, r.r_rip);
+  r.r_rsp -= 8;
+  r.r_rip = entry;
   r.r_rdi = args;
 
   if(pt_setregs(pid, &r)) {
-    klog_perror("pt_setregs");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
-    return -1;
-  }
-
-  // call entry pointed at from rax
-  if(pt_step(pid)) {
-    klog_perror("pt_step");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
-    return -1;
-  }
-
-  // restore next instruction
-  if(mdbg_copyin(pid, &org_inst, r.r_rip, sizeof(org_inst))) {
-    perror("mdbg_copyin");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
+    LOG_PERROR("pt_setregs");
     return -1;
   }
 
@@ -488,11 +391,11 @@ elfldr_set_procname(pid_t pid, const char* name) {
 
   if((buf=pt_mmap(pid, 0, PAGE_SIZE, PROT_READ | PROT_WRITE,
 		  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0)) == -1) {
-    pt_perror(pid, "pt_mmap");
+    LOG_PT_PERROR(pid, "pt_mmap");
     return -1;
   }
 
-  mdbg_copyin(pid, name, buf, strlen(name)+1);
+  pt_copyin(pid, name, buf, strlen(name)+1);
   pt_syscall(pid, SYS_thr_set_name, -1, buf);
   pt_msync(pid, buf, PAGE_SIZE, MS_SYNC);
   pt_munmap(pid, buf, PAGE_SIZE);
@@ -544,24 +447,24 @@ elfldr_exec(pid_t pid, int stdio, uint8_t* elf) {
   // backup privileges
   jaildir = kernel_get_proc_jaildir(pid);
   if(!(rootdir=kernel_get_proc_rootdir(pid))) {
-    klog_puts("kernel_get_proc_rootdir failed");
-    pt_detach(pid);
+    LOG_PUTS("kernel_get_proc_rootdir failed");
+    pt_detach(pid, 0);
     return -1;
   }
   if(kernel_get_ucred_caps(pid, caps)) {
-    klog_puts("kernel_get_ucred_caps failed");
-    pt_detach(pid);
+    LOG_PUTS("kernel_get_ucred_caps failed");
+    pt_detach(pid, 0);
     return -1;
   }
   if(!(authid=kernel_get_ucred_authid(pid))) {
-    klog_puts("kernel_get_ucred_authid failed");
-    pt_detach(pid);
+    LOG_PUTS("kernel_get_ucred_authid failed");
+    pt_detach(pid, 0);
     return -1;
   }
 
   if(elfldr_raise_privileges(pid)) {
-    klog_puts("Unable to raise privileges");
-    pt_detach(pid);
+    LOG_PUTS("Unable to raise privileges");
+    pt_detach(pid, 0);
     return -1;
   }
 
@@ -585,25 +488,25 @@ elfldr_exec(pid_t pid, int stdio, uint8_t* elf) {
 
   // restore privileges
   if(kernel_set_proc_jaildir(pid, jaildir)) {
-    klog_puts("kernel_set_proc_jaildir failed");
+    LOG_PUTS("kernel_set_proc_jaildir failed");
     error = -1;
   }
   if(kernel_set_proc_rootdir(pid, rootdir)) {
-    klog_puts("kernel_set_proc_rootdir failed");
+    LOG_PUTS("kernel_set_proc_rootdir failed");
     error = -1;
   }
 
   if(kernel_set_ucred_caps(pid, caps)) {
-    klog_puts("kernel_set_ucred_caps failed");
+    LOG_PUTS("kernel_set_ucred_caps failed");
     error = -1;
   }
   if(kernel_set_ucred_authid(pid, authid)) {
-    klog_puts("kernel_set_ucred_authid failed");
+    LOG_PUTS("kernel_set_ucred_authid failed");
     error = -1;
   }
 
-  if(pt_detach(pid)) {
-    klog_perror("pt_detach");
+  if(pt_detach(pid, 0)) {
+    LOG_PERROR("pt_detach");
     error = -1;
   }
 
@@ -622,24 +525,24 @@ elfldr_set_heap_size(pid_t pid, ssize_t size) {
   intptr_t Need_sceLibc;
 
   if(!(sceProcParam=pt_sceKernelGetProcParam(pid))) {
-    pt_perror(pid, "pt_sceKernelGetProcParam");
+    LOG_PT_PERROR(pid, "pt_sceKernelGetProcParam");
     return -1;
   }
 
-  if(mdbg_copyout(pid, sceProcParam+56, &sceLibcParam,
-		  sizeof(sceLibcParam))) {
-    perror("mdbg_copyout");
+  if(pt_copyout(pid, sceProcParam+56, &sceLibcParam,
+		sizeof(sceLibcParam))) {
+    LOG_PERROR("pt_copyout");
     return -1;
   }
 
-  if(mdbg_copyout(pid, sceLibcParam+16, &sceLibcHeapSize,
-		  sizeof(sceLibcHeapSize))) {
-    perror("mdbg_copyout");
+  if(pt_copyout(pid, sceLibcParam+16, &sceLibcHeapSize,
+		sizeof(sceLibcHeapSize))) {
+    LOG_PERROR("pt_copyout");
     return -1;
   }
 
-  if(mdbg_setlong(pid, sceLibcHeapSize, size)) {
-    perror("mdbg_setlong");
+  if(pt_setlong(pid, sceLibcHeapSize, size)) {
+    LOG_PERROR("pt_setlong");
     return -1;
   }
 
@@ -647,13 +550,51 @@ elfldr_set_heap_size(pid_t pid, ssize_t size) {
     return 0;
   }
 
-  if(mdbg_copyout(pid, sceLibcParam+72, &Need_sceLibc,
-		  sizeof(Need_sceLibc))) {
-    perror("mdbg_copyout");
+  if(pt_copyout(pid, sceLibcParam+72, &Need_sceLibc,
+		sizeof(Need_sceLibc))) {
+    LOG_PERROR("pt_copyout");
     return -1;
   }
 
-  return mdbg_setlong(pid, sceLibcParam+32, Need_sceLibc);
+  return pt_setlong(pid, sceLibcParam+32, Need_sceLibc);
+}
+
+
+static int
+sys_budget_set(long budget) {
+  return __syscall(0x23b, budget);
+}
+
+
+static int
+elfldr_rfork_entry(void* progname) {
+  char* const argv[] = {(char*)progname, 0};
+
+  if(sys_budget_set(0)) {
+    klog_perror("sys_budget_set");
+    return -1;
+  }
+  if(open("/dev/deci_stdin", O_RDONLY) < 0) {
+    klog_perror("open");
+    return -1;
+  }
+  if(open("/dev/deci_stdout", O_WRONLY) < 0) {
+    klog_perror("open");
+    return -1;
+  }
+  if(open("/dev/deci_stderr", O_WRONLY) < 0) {
+    klog_perror("open");
+    return -1;
+  }
+
+  if(ptrace(PT_TRACE_ME, 0, 0, 0)) {
+    klog_perror("ptrace");
+    return -1;
+  }
+
+  execve(SceSpZeroConf, argv, 0);
+  klog_perror("execve");
+  return -1;
 }
 
 
@@ -662,24 +603,58 @@ elfldr_set_heap_size(pid_t pid, ssize_t size) {
  **/
 pid_t
 elfldr_spawn(const char* progname, int stdio, uint8_t* elf) {
-  const char* argv[] = {progname, 0};
+
   uint8_t int3instr = 0xcc;
+  struct kevent evt;
   intptr_t brkpoint;
   uint8_t orginstr;
-  pid_t pid = -1;
+  void *stack;
+  pid_t pid;
+  int kq;
 
-  if(sceKernelSpawn(&pid, 1, SceSpZeroConf, 0, argv)) {
-    perror("sceKernelSpawn");
+  if((kq=kqueue()) < 0) {
+    LOG_PERROR("kqueue");
     return -1;
   }
+
+  if(!(stack=malloc(PAGE_SIZE))) {
+    LOG_PERROR("malloc");
+    close(kq);
+    return -1;
+  }
+
+  if((pid=rfork_thread(RFPROC | RFCFDG | RFMEM, stack+PAGE_SIZE-8,
+		       elfldr_rfork_entry, (void*)progname)) < 0) {
+    LOG_PERROR("rfork_thread");
+    free(stack);
+    close(kq);
+    return -1;
+  }
+
+  EV_SET(&evt, pid, EVFILT_PROC, EV_ADD, NOTE_EXEC, 0, 0);
+  if(kevent(kq, &evt, 1, &evt, 1, 0) < 0) {
+    LOG_PERROR("kevent");
+    free(stack);
+    close(kq);
+    return -1;
+  }
+
+  if(waitpid(pid, 0, 0) < 0) {
+    LOG_PERROR("waitpid");
+    free(stack);
+    close(kq);
+    return -1;
+  }
+
+  free(stack);
+  close(kq);
 
   // The proc is now in the STOP state, with the instruction pointer pointing
   // at the libkernel entry. Let the kernel assign process parameters accessed
   // via sceKernelGetProcParam()
   if(pt_syscall(pid, 599)) {
-    klog_puts("sys_dynlib_process_needed_and_relocate failed");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
+    LOG_PT_PERROR(pid, "sys_dynlib_process_needed_and_relocate");
+    pt_detach(pid, SIGKILL);
     return -1;
   }
 
@@ -688,42 +663,43 @@ elfldr_spawn(const char* progname, int stdio, uint8_t* elf) {
 
   //Insert a breakpoint at the eboot entry.
   if(!(brkpoint=kernel_dynlib_entry_addr(pid, 0))) {
-    klog_puts("kernel_dynlib_entry_addr failed");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
+    LOG_PUTS("kernel_dynlib_entry_addr failed");
+    pt_detach(pid, SIGKILL);
     return -1;
   }
   brkpoint += 58;// offset to invocation of main()
-  if(mdbg_copyout(pid, brkpoint, &orginstr, sizeof(orginstr))) {
-    klog_perror("mdbg_copyout");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
+
+  if(kernel_mprotect(pid, brkpoint, PAGE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC)) {
+    LOG_PUTS("kernel_mprotect failed");
+    pt_detach(pid, SIGKILL);
     return -1;
   }
-  if(mdbg_copyin(pid, &int3instr, brkpoint, sizeof(int3instr))) {
-    klog_perror("mdbg_copyin");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
+
+  if(pt_copyout(pid, brkpoint, &orginstr, sizeof(orginstr))) {
+    LOG_PERROR("pt_copyout");
+    pt_detach(pid, SIGKILL);
+    return -1;
+  }
+  if(pt_copyin(pid, &int3instr, brkpoint, sizeof(int3instr))) {
+    LOG_PERROR("pt_copyin");
+    pt_detach(pid, SIGKILL);
     return -1;
   }
 
   // Continue execution until we hit the breakpoint, then remove it.
   if(pt_continue(pid, SIGCONT)) {
-    klog_perror("pt_continue");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
+    LOG_PERROR("pt_continue");
+    pt_detach(pid, SIGKILL);
     return -1;
   }
   if(waitpid(pid, 0, 0) == -1) {
-    klog_perror("waitpid");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
+    LOG_PERROR("waitpid");
+    pt_detach(pid, SIGKILL);
     return -1;
   }
-  if(mdbg_copyin(pid, &orginstr, brkpoint, sizeof(orginstr))) {
-    klog_perror("mdbg_copyin");
-    kill(pid, SIGKILL);
-    pt_detach(pid);
+  if(pt_copyin(pid, &orginstr, brkpoint, sizeof(orginstr))) {
+    LOG_PERROR("pt_copyin");
+    pt_detach(pid, SIGKILL);
     return -1;
   }
 
@@ -750,17 +726,17 @@ elfldr_find_pid(const char* name) {
   uint8_t *buf;
 
   if(sysctl(mib, 4, 0, &buf_size, 0, 0)) {
-    klog_perror("sysctl");
+    LOG_PERROR("sysctl");
     return -1;
   }
 
   if(!(buf=malloc(buf_size))) {
-    klog_perror("malloc");
+    LOG_PERROR("malloc");
     return -1;
   }
 
   if(sysctl(mib, 4, buf, &buf_size, 0, 0)) {
-    klog_perror("sysctl");
+    LOG_PERROR("sysctl");
     free(buf);
     return -1;
   }
@@ -779,4 +755,77 @@ elfldr_find_pid(const char* name) {
   free(buf);
 
   return pid;
+}
+
+
+/**
+ * Read an ELF from a given socket.
+ **/
+int
+elfldr_read(int fd, uint8_t** elf, size_t* elf_size) {
+  Elf64_Shdr *shdr;
+  Elf64_Ehdr ehdr;
+  uint8_t* buf;
+  uint8_t* bak;
+  size_t size;
+  off_t shend;
+  size_t rem;
+
+  if(recv(fd, &ehdr, sizeof(ehdr), MSG_WAITALL) != sizeof(ehdr)) {
+    return -1;
+  }
+
+  if(ehdr.e_ident[0] != 0x7f || ehdr.e_ident[1] != 'E' ||
+     ehdr.e_ident[2] != 'L'  || ehdr.e_ident[3] != 'F') {
+    errno = ENOEXEC;
+    return -1;
+  }
+
+  size = ehdr.e_shoff + ehdr.e_shnum * sizeof(Elf64_Ehdr);
+  if(!(buf=malloc(size))) {
+    return -1;
+  }
+
+  memcpy(buf, &ehdr, sizeof(ehdr));
+  rem = size - sizeof(ehdr);
+  if(recv(fd, buf + sizeof(ehdr), rem, MSG_WAITALL) != rem) {
+    free(buf);
+    return -1;
+  }
+
+  shend = 0;
+  shdr = (Elf64_Shdr*)(buf + ehdr.e_shoff);
+  for(int i=0; i<ehdr.e_shnum; i++) {
+    if(shdr[i].sh_type == SHT_NOBITS) {
+      continue;
+    }
+    size_t end = shdr[i].sh_offset + shdr[i].sh_size;
+    if(end > shend) {
+      shend = end;
+    }
+  }
+
+  // sections appear before section headers
+  if(shend <= size) {
+    *elf = buf;
+    *elf_size = size;
+    return 0;
+  }
+
+  bak = buf;
+  if(!(buf=realloc(buf, shend))) {
+    free(bak);
+    return -1;
+  }
+
+  rem = shend - size;
+  if(recv(fd, buf + size, rem, MSG_WAITALL) != rem) {
+    free(buf);
+    return -1;
+  }
+
+  *elf = buf;
+  *elf_size = shend;
+
+  return 0;
 }

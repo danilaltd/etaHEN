@@ -58,7 +58,7 @@ bool if_exists(const char *path);
 
 extern "C" {
 #include <sys/mount.h>
-pid_t elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name);
+pid_t elfldr_spawn(const char* progname, int stdio, uint8_t *elf);
 int32_t sceKernelPrepareToSuspendProcess(pid_t pid);
 int32_t sceKernelSuspendProcess(pid_t pid);
 int32_t sceKernelPrepareToResumeProcess(pid_t pid);
@@ -1165,7 +1165,7 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
 
     notify(true, "Loading PS5Debug...");
 #if 1
-    if (elfldr_spawn("/", STDOUT_FILENO, ps5debug_start, "PS5Debug") < 0) {
+    if (elfldr_spawn("PS5Debug", STDOUT_FILENO, ps5debug_start) < 0) {
         notify(true, "PS5Debug is starting\nWait for the PS5Debug welcome message");
         global_conf.PS5Debug = true;
     }
