@@ -50,7 +50,7 @@ along with this program; see the file COPYING. If not, see
 
 extern "C" {
 #include <ps5/kernel.h>
-pid_t elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name);
+pid_t elfldr_spawn(const char* progname, int stdio, uint8_t *elf);
 }
 
 using namespace std;
@@ -588,7 +588,7 @@ void *fifo_and_dumper_thread(void *args) noexcept {
               continue;
           }
 
-          if (elfldr_spawn("/", STDOUT_FILENO, util_elf, "etaHEN Utility Daemon") >= 0) {
+          if (elfldr_spawn("etaHEN Utility Daemon", STDOUT_FILENO, util_elf) >= 0) {
               etaHEN_log("  Launched!");
               notify(true, "etaHEN Utility services successfully restarted");
               retries = 0;

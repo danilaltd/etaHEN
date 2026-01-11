@@ -18,7 +18,7 @@ along with this program; see the file COPYING. If not, see
 
 #include <unistd.h>
 
-pid_t elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name);
+pid_t elfldr_spawn(const char* progname, int stdio, uint8_t *elf);
 // int   elfldr_exec(pid_t pid, int stdio, uint8_t* elf);
 intptr_t elfldr_load(pid_t pid, uint8_t *elf);
 intptr_t elfldr_payload_args(pid_t pid);

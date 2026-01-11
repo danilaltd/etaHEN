@@ -28,7 +28,8 @@ extern "C" {
 #include <sys/ioctl.h>
 
 int sceKernelMprotect(void *addr, size_t len, int prot);
-pid_t elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name);
+pid_t elfldr_spawn(const char* progname, int stdio, uint8_t *elf);
+
 
 
 extern uint8_t elfldr_start[];
@@ -534,7 +535,7 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
   }
   case BREW_UTIL_LAUNCH_ELFLDR: {
 #if 1
-    if (elfldr_spawn("/", STDOUT_FILENO, elfldr_start, "elfldr.elf") >= 0) {
+    if (elfldr_spawn("elfldr.elf", STDOUT_FILENO, elfldr_start) >= 0) {
       reply(sender_app, false);
       break;
     }

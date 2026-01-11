@@ -64,7 +64,7 @@ along with this program; see the file COPYING. If not, see
  #include <ps5/klog.h>
  #include <ps5/kernel.h>
 
- pid_t elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name);
+ pid_t elfldr_spawn(const char* progname, int stdio, uint8_t *elf);
  int sceKernelMprotect(void* addr, size_t len, int prot);
 
  extern uint8_t kstuff_start[];
@@ -763,7 +763,7 @@ bool load_plugin(const char *path, const char *filename)
     }
 
     printf("loading elf %s\n", filename);
-    pid = elfldr_spawn("/", sock.fd, buf, header->titleID);
+    pid = elfldr_spawn(header->titleID, sock.fd, buf);
     if (pid >= 0)
       printf("  Launched!\n");
     else
@@ -850,7 +850,7 @@ bool load_plugin(const char *path, const char *filename)
   }
 
   printf("loading plugin %s\n", path);
-  pid = elfldr_spawn("/", sock.fd, elf, header->titleID);
+  pid = elfldr_spawn(header->titleID, sock.fd, elf);
   if (pid >= 0)
     printf("  Launched!\n");
   else
@@ -1173,7 +1173,7 @@ int main(void) {
       bool cleanup_kstuff = false;
       uint8_t* kstuff_address = get_kstuff_address(cleanup_kstuff);
 
-      if (elfldr_spawn("/", STDOUT_FILENO, kstuff_address, "kstuff")) {
+      if (elfldr_spawn("kstuff", STDOUT_FILENO, kstuff_address)) {
           int wait = 0;
           bool kstuff_not_loaded = false;
           sleep(1);
@@ -1208,7 +1208,7 @@ int main(void) {
     }
   }
 
-  if (elfldr_spawn("/", sock.fd, util_start, "etaHEN Utility Daemon") >= 0) {
+  if (elfldr_spawn("etaHEN Utility Daemon", sock.fd, util_start) >= 0) {
       klog_printf("  Launched!\n");
     // Open the file with write permission, create if not exist, truncate to zero if exists
     int fd = open("/data/etaHEN/daemons/util.elf", O_WRONLY | O_CREAT | O_TRUNC, 0777);
@@ -1231,7 +1231,7 @@ int main(void) {
 
   klog_printf("Starting the main etaHEN daemon ...");
 
-  if (elfldr_spawn("/", sock.fd, daemon_start, "etaHEN Critical services") >= 0) {
+  if (elfldr_spawn("etaHEN Critical services", sock.fd, daemon_start) >= 0) {
       klog_printf("  Launched!\n");
   } else {
       klog_printf("failed to launch main daemon\n");

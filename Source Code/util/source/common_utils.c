@@ -39,7 +39,7 @@ int elfldr_set_procname(pid_t pid, const char* name);
 
 int sceKernelGetProcessName(int pid, char *name);
 int sceKernelGetAppInfo(int pid, app_info_t *title);
-pid_t elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name);
+pid_t elfldr_spawn(const char* progname, int stdio, uint8_t *elf);
 
 atomic_bool not_connected = false;
 
@@ -526,7 +526,7 @@ bool load_plugin(const char *path)
     }
 
     etaHEN_log("loading elf %s", filename);
-    pid = elfldr_spawn("/", STDOUT_FILENO, buf, header->titleID);
+    pid = elfldr_spawn(header->titleID, STDOUT_FILENO, buf);
 
     if (pid >= 0)
       etaHEN_log("  Launched!");
@@ -607,7 +607,7 @@ bool load_plugin(const char *path)
   make_plugin_app(header->titleID, elf, st.st_size - sizeof(CustomPluginHeader));
 
   etaHEN_log("loading plugin %s", path);
-  pid = elfldr_spawn("/", STDOUT_FILENO, elf, header->titleID);
+  pid = elfldr_spawn(header->titleID, STDOUT_FILENO, elf);
   bool success = (pid >= 0);
   if (success)
     etaHEN_log("  Launched!");

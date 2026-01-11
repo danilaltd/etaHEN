@@ -20,47 +20,30 @@ along with this program; see the file COPYING. If not, see
 
 
 /**
- * Escape jail and raise privileges.
+ * Find the id of a process with the given name.
  **/
+pid_t elfldr_find_pid(const char* name);
+
+
+/**
+ * Spawn a new process that executes the given ELF file.
+ **/
+pid_t elfldr_spawn(const char* progname, int stdio, uint8_t *elf);
+
+
+/**
+ * Execute an ELF file in a given process.
+ **/
+int elfldr_exec(pid_t pid, int stdio, uint8_t* elf);
+
+
+/**
+ * Read an ELF from the given socket.
+ **/
+int elfldr_read(int fd, uint8_t** elf, size_t* elf_size);
+
+
+int elfldr_sanity_check(uint8_t *elf, size_t elf_size);
+
+
 int elfldr_raise_privileges(pid_t pid);
-
-
-/**
- * Execute an ELF inside a new process.
- **/
-pid_t elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name);
-
-/**
- * Execute an ELF inside the process with the given pid.
- **/
-int elfldr_exec(pid_t pid, uint8_t* elf);
-
-
-/**
- * Set environmental variables in the given process.
- **/
-int elfldr_set_environ(pid_t pid, char** envp);
-
-
-/**
- * Set the name of a process.
- **/
-int elfldr_set_procname(pid_t pid, const char* name);
-
-
-/**
- * Set stdout and stderr file descriptors of the given process.
- **/
-int elfldr_set_stdio(pid_t pid, int stdio);
-
-
-/**
- * Set the current working directory.
- **/
-int elfldr_set_cwd(pid_t pid, const char* cwd);
-
-
-/**
- * Set the heap size for libc.
- **/
-int elfldr_set_heap_size(pid_t pid, ssize_t size);

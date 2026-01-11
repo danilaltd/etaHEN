@@ -80,7 +80,7 @@ extern "C" {
     uint64_t sceKernelGetProcessTime();
     int sceSystemServiceGetAppId(const char *title_id);
     int scePadSetProcessPrivilege(int priv);
-    pid_t elfldr_spawn(const char* cwd, int stdio, uint8_t* elf, const char* name);
+    pid_t elfldr_spawn(const char* progname, int stdio, uint8_t *elf);
     int sceUserServiceGetForegroundUser(int *userId);
     int sceLncUtilLaunchApp(const char *tid, const char *argv[], LncAppParam *param);
     uint32_t _sceApplicationGetAppId(int pid, uint32_t *appId);
@@ -365,7 +365,7 @@ int main() {
 
     // Load PS5Debug if needed
     if (global_conf.PS5Debug && !no_ps5debug && !has_hv_bypass && !is_lite) {
-        if (!elfldr_spawn("/", STDOUT_FILENO, ps5debug_start, "ps5debug"))
+        if (!elfldr_spawn("ps5debug", STDOUT_FILENO, ps5debug_start))
             notify(true, "Failed to load PS5Debug");
     }
 
