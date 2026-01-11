@@ -1300,7 +1300,7 @@ void handleIPC(struct clientArgs *client, std::string &inputStr,
   }
   case BREW_LAUNCH_DUMPER:{
 #if 1
-    if (elfldr_spawn("/", STDOUT_FILENO, dumper_elf_start, "Dumper") < 0) {
+    if (elfldr_spawn("Dumper", STDOUT_FILENO, dumper_elf_start) < 0) {
         notify(true, "Dumper is starting\nPlease wait...");
     }
 #endif
