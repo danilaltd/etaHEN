@@ -21,7 +21,7 @@ endif()
 message("IS_SUBPROJECT: ${IS_SUBPROJECT}")
 
 set(D_CWD "${CMAKE_CURRENT_SOURCE_DIR}")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${D_CWD}/../bin)
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${D_CWD}/../bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${D_CWD}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${D_CWD}/bin)	# static libs are archive
 set(D_SRC ${D_CWD}/source)
@@ -34,6 +34,20 @@ include_directories	(SYSTEM "${PS5_PAYLOAD_SDK}/include")
 set(PROJECT_NAME etaHEN)
 add_executable(${PROJECT_NAME})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${PROJECT_NAME}.elf")
+
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/assets)
+
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/assets/bootstrapper.elf.lzma
+    DEPENDS bootstrapper
+    COMMAND ${CMAKE_COMMAND} -E copy
+            $<TARGET_FILE:bootstrapper>
+            ${CMAKE_CURRENT_BINARY_DIR}/assets/bootstrapper.elf.lzma
+    COMMENT "Generating assets/bootstrapper.elf.lzma from target bootstrapper"
+)
+
+set_property(SOURCE ${D_SRC}/main.c APPEND PROPERTY
+  OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/assets/bootstrapper.elf.lzma)
 
 # Must build with clang
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "[Cc]lang")

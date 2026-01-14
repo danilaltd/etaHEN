@@ -22,7 +22,7 @@ endif()
 message("IS_SUBPROJECT: ${IS_SUBPROJECT}")
 
 set(D_CWD "${CMAKE_CURRENT_SOURCE_DIR}")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${D_CWD}/../bin)
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${D_CWD}/../bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${D_CWD}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${D_CWD}/bin)	# static libs are archive
 set(D_SRC ${D_CWD}/source)

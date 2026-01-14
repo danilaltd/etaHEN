@@ -21,7 +21,7 @@ endif()
 message("IS_SUBPROJECT: ${IS_SUBPROJECT}")
 
 set(D_CWD "${CMAKE_CURRENT_SOURCE_DIR}")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${D_CWD}/../bin)
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${D_CWD}/../bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${D_CWD}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${D_CWD}/bin)	# static libs are archive
 set(D_SRC ${D_CWD}/source)
@@ -33,6 +33,31 @@ include_directories (SYSTEM "${D_CWD}/../libelfloader/include")
 
 add_executable(${PROJECT_NAME})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${PROJECT_NAME}.elf")
+
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/assets)
+
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/assets/shellui.elf
+    DEPENDS shellui
+    COMMAND ${CMAKE_COMMAND} -E copy
+            $<TARGET_FILE:shellui>
+            ${CMAKE_CURRENT_BINARY_DIR}/assets/shellui.elf
+    COMMENT "Generating assets/shellui.elf from target shellui"
+)
+
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/assets/fps_elf.elf
+    DEPENDS fps_elf
+    COMMAND ${CMAKE_COMMAND} -E copy
+            $<TARGET_FILE:fps_elf>
+            ${CMAKE_CURRENT_BINARY_DIR}/assets/fps_elf.elf
+    COMMENT "Generating assets/fps_elf.elf from target fps_elf"
+)
+
+set_property(SOURCE ${D_SRC}/embeddded_payloads.c APPEND PROPERTY
+  OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/assets/shellui.elf)
+set_property(SOURCE ${D_SRC}/embeddded_payloads.c APPEND PROPERTY
+  OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/assets/fps_elf.elf)
 
 # Must build with clang
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "[Cc]lang")
@@ -61,7 +86,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 ")
 target_sources(${PROJECT_NAME} PRIVATE ${SrcFiles})
 target_include_directories(${PROJECT_NAME} PRIVATE "${D_CWD}/include")
 target_link_directories	(${PROJECT_NAME} PUBLIC "${PROJECT_ROOT}/lib")
-add_dependencies(${PROJECT_NAME} NineS shellui hijacker SelfDecryptor elfldr)
+add_dependencies(${PROJECT_NAME} NineS shellui hijacker SelfDecryptor elfldr fps_elf)
 target_link_libraries	(${PROJECT_NAME} PUBLIC hijacker ScePad SceSystemService SceNotification SceNet SceRegMgr SceSysmodule SceUserService SceNetCtl SceSysCore kernel_sys SceAppInstUtil NineS elfldr SelfDecryptor)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Add post-build command

@@ -21,7 +21,7 @@ endif()
 message("IS_SUBPROJECT: ${IS_SUBPROJECT}")
 
 set(D_CWD "${CMAKE_CURRENT_SOURCE_DIR}")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${D_CWD}/../bin)
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${D_CWD}/../bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${D_CWD}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${D_CWD}/bin)	# static libs are archive
 set(D_SRC ${D_CWD}/source)
@@ -32,6 +32,31 @@ include_directories	(SYSTEM "${PS5_PAYLOAD_SDK}/include")
 
 add_executable(${PROJECT_NAME})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "${PROJECT_NAME}.elf")
+
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/assets)
+
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/assets/daemon.elf
+    DEPENDS daemon
+    COMMAND ${CMAKE_COMMAND} -E copy
+            $<TARGET_FILE:daemon>
+            ${CMAKE_CURRENT_BINARY_DIR}/assets/daemon.elf
+    COMMENT "Generating assets/daemon.elf from target daemon"
+)
+
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/assets/util.elf
+    DEPENDS util
+    COMMAND ${CMAKE_COMMAND} -E copy
+            $<TARGET_FILE:util>
+            ${CMAKE_CURRENT_BINARY_DIR}/assets/util.elf
+    COMMENT "Generating assets/util.elf from target util"
+)
+
+set_property(SOURCE ${D_SRC}/daemon.c APPEND PROPERTY
+  OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/assets/daemon.elf)
+set_property(SOURCE ${D_SRC}/daemon.c APPEND PROPERTY
+  OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/assets/util.elf)
 
 # Must build with clang
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "[Cc]lang")
@@ -65,9 +90,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_dependencies(${PROJECT_NAME} daemon util shellui)
 
 # Copy bootstrapper.elf as test.elf before processing
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test.elf
-    COMMENT "Copying ${PROJECT_NAME}.elf to test.elf"
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD 
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test_bootstrapper.elf
+    COMMENT "Copying ${PROJECT_NAME}.elf to test_bootstrapper.elf"
 )
 
 # Add post-build command
@@ -82,6 +107,6 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 )
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND lzma -f -9 $<TARGET_FILE:${PROJECT_NAME}>
+    COMMAND lzma -c -9 $<TARGET_FILE:${PROJECT_NAME}> > $<TARGET_FILE:${PROJECT_NAME}>.lzma
     COMMENT "Compressing with lzma -9 (Max compression rate)"
 )
