@@ -337,7 +337,7 @@ static void cleanup(void);
     }
     close(fd);
 #endif
-#if 0
+#if 1
    /// if (!if_exists("/data/etaHEN/fps.prx")) {
         int fd = open("/data/etaHEN/fps.prx", O_WRONLY | O_CREAT | O_TRUNC, 0777);
         if (fd == -1) {

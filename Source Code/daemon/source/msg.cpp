@@ -789,6 +789,26 @@ static constexpr GameBuilder BUILDER_TEMPLATE{
     0x00, 0x00, 0x44, 0x89, 0xf8, 0x48, 0x83, 0xc4, 0x48, 0x5b, 0x41, 0x5e, 0x41, 0x5f, 0x5d, 0xc3,
 };
 
+// void dumpSymbols(const rtld::ElfSymbolTable& table)
+// {
+//     for (size_t i = 0; i < table.length(); i++) {
+//         rtld::ElfSymbol sym = table[i];
+
+//         const char* name = sym.name();      // имя символа
+//         const Nid nid = sym.nid();          // NID (если есть)
+//         uint64_t addr = sym.st_value;       // адрес
+//         bool exp = sym.exported();          // экспортируемый?
+
+//         etaHEN_log("SYM[%zu]: name=%s nid=%s addr=0x%llx exported=%d",
+//                    i,
+//                    name ? name : "<null>",
+//                    nid.str,
+//                    addr,
+//                    exp);
+//     }
+// }
+
+
 bool HookGame(UniquePtr<Hijacker>& hijacker, uint64_t alsr_b) {
     etaHEN_log("Patching Game Now");
 
@@ -833,6 +853,12 @@ bool HookGame(UniquePtr<Hijacker>& hijacker, uint64_t alsr_b) {
     auto meta = hijacker->getEboot()->getMetaData();
     const auto& plttab = meta->getPltTable();
     auto index = meta->getSymbolTable().getSymbolIndex(nid::scePadReadState);
+    // etaHEN_log("scePadReadState symbol index: %d", index);
+    // dumpSymbols(meta->getSymbolTable());
+    if (index == -1) {
+      etaHEN_log("no scePadReadState in the game");
+      return false;
+    }
     for (const auto& plt : plttab) {
         if (ELF64_R_SYM(plt.r_info) == index) {
             builder.setExtraStuffAddr(stuffAddr);
@@ -877,7 +903,12 @@ bool set_fan_threshold(int THRESHOLDTEMP) {
     return true;
 }
 
-
+static void* SuspendAppThread(void* arg)
+{
+    pid_t pid = *(pid_t*)arg;
+    SuspendApp(pid);
+    return nullptr;
+}
 
 bool cmd_enable_fps_new(int appid) {
  
@@ -889,7 +920,9 @@ bool cmd_enable_fps_new(int appid) {
     etaHEN_log("Enabling fps for appid %d", appid);
 
     sleep(5);
-
+    pthread_t th;
+    pthread_create(&th, nullptr, SuspendAppThread, &appid);
+    sleep(1);
     SuspendApp(appid);
     char buz[100] = { 0 };
     if (sceKernelMprotect(&buz[0], 100, 0x7) == 0) {
@@ -931,6 +964,10 @@ bool cmd_enable_fps(int appid) {
         return true;
 	   }
 
+    pthread_t th;
+    pthread_create(&th, nullptr, SuspendAppThread, &appid);
+    sleep(1);
+    
     SuspendApp(appid);
 
     int bappid = 0, pid = 0;
@@ -967,7 +1004,7 @@ bool cmd_enable_fps(int appid) {
         return false;
     }
 
-    while (!HookGame(executable, text_base)) {
+    for (int i = 0; i < 10 && !HookGame(executable, text_base); ++i) {
         //etaHEN_log("Failed to patch the game");
         sleep(1);
     }
