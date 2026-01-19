@@ -27,3 +27,8 @@ Makefile
 bootstrapper/Makefile
 hen.bin
 util/assets/shellui.elf
+unpacker/assets/bootstrapper.elf.lzma
+lib/libSelfDecryptor.a
+lib/libelfldr.a
+shellui/assets/etaHEN_Lite.sxml
+shellui/assets/etaHEN_toolbox.sxml
