@@ -1,37 +1,53 @@
-/* Copyright (C) 2025 etaHEN / LightningMods
-
-This program is free software; you can redistribute it and/or modify it
-under the terms of the GNU General Public License as published by the
-Free Software Foundation; either version 3, or (at your option) any
-later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; see the file COPYING. If not, see
-<http://www.gnu.org/licenses/>.  */
+/*
+ * GoldHEN Plugin SDK - a prx hook/patch sdk for Orbis OS
+ *
+ * Credits
+ * - OSM <https://github.com/OSM-Made>
+ * - jocover <https://github.com/jocover>
+ * - bucanero <https://github.com/bucanero>
+ * - OpenOrbis Team <https://github.com/OpenOrbis>
+ * - SiSTRo <https://github.com/SiSTR0>
+ */
 
 #pragma once
+
+#ifdef __cplusplus
 extern "C" {
-#include "ucred.h"
-#include "defs.h"
-#include "../lib/libmprotect.h"
-#include <cstdint>
-#include <sys/mman.h>
-#include <sys/syscall.h>
-#include <unistd.h>
-#include "ps5/mdbg.h"
+#endif
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef enum _GHSDK_DetourMode {
+    DetourMode_x64,
+    DetourMode_x32
+} DetourMode;
+
+typedef struct _GHSDK_Detour {
+    DetourMode Mode;
+    void *StubPtr;
+    size_t StubSize;
+    void *FunctionPtr;
+    void *TrampolinePtr;
+    void *HookPtr;
+    uint8_t JumpInstructions64[14];  // jmp QWORD PTR[Address]
+    uint8_t JumpInstructions32[05];  // jmp 32
+} Detour;
+
+// usage:
+// typedef int(*somefunc_t)(int, void *, const char *);
+// int result = Detour_Stub(&SomeHook, somefunc_t, /* arguments begin */ 1, NULL, "hi");
+#define Detour_Stub(This, FunctionPointerType, ...) (((FunctionPointerType)((This)->StubPtr))(/* Arguments */__VA_ARGS__))
+
+void *Detour_DetourFunction(Detour *This, uint64_t FunctionPtr, void *HookPtr);
+
+void Detour_RestoreFunction(Detour *This);
+
+void Detour_Construct(Detour *This, DetourMode Mode);
+
+void Detour_Destroy(Detour *This);
+
+#ifdef __cplusplus
 }
-
-#define HOOK_LENGTH 14
-#define SYS_jitshm_create   0x215
-#define SYS_jitshm_alias    0x216
-
-
-void  PatchInJump(uint64_t address, void* destination);
-void* DetourFunction(uint64_t address, void* destination);
-void  WriteMemory(uint64_t address, void* buffer, int length);
-int JITAlloc(size_t size, void** executableAddress, void** writableAddress); 
+#endif

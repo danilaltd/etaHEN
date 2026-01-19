@@ -614,10 +614,10 @@ void *fifo_and_dumper_thread(void *args) noexcept {
 
     if( if_exists("/system_tmp/fps_enabled") && (tid.rfind("CUSA") != std::string::npos || tid.rfind("SCUS") != std::string::npos)){
         // cmd_enable_fps(bappid);
-        if(is_800)
-          cmd_enable_fps_new(bappid);
-        else
-          cmd_enable_fps(bappid);
+        // if(is_800)
+        cmd_enable_fps_new(bappid);
+        // else
+          // cmd_enable_fps(bappid);
     }
 
     if (is_dumper_enabled) {

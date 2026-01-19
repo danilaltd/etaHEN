@@ -1,29 +1,32 @@
-﻿/*
- * Hacker Disassembler Engine 64
- * Copyright (c) 2008-2009, Vyacheslav Patkov.
- * All rights reserved.
- *
- * hde64.h: C/C++ header file
- *
- */
+/*
+* Hacker Disassembler Engine 64
+* Copyright (c) 2008-2009, Vyacheslav Patkov.
+* All rights reserved.
+*
+* hde64.h: C/C++ header file
+*
+*/
 
-#ifndef _HDE64_H_
-#define _HDE64_H_
+#pragma once
 
 /* stdint.h - C99 standard header
- * http://en.wikipedia.org/wiki/stdint.h
- *
- * if your compiler doesn't contain "stdint.h" header (for
- * example, Microsoft Visual C++), you can download file:
- *   http://www.azillionmonkeys.com/qed/pstdint.h
- * and change next line to:
- *   #include "pstdint.h"
- */
-//#include "pstdint.h"
+* http://en.wikipedia.org/wiki/stdint.h
+*
+* if your compiler doesn't contain "stdint.h" header (for
+* example, Microsoft Visual C++), you can download file:
+*   http://www.azillionmonkeys.com/qed/pstdint.h
+* and change next line to:
+*   #include "pstdint.h"
+*/
+
+// User mode
+#if defined(__cplusplus)
+#include <cstdint>
+#else // defined(__cplusplus)
+
 #include <stdint.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <string.h>
+
+#endif // defined(__cplusplus)
 
 #define F_MODRM         0x00000001
 #define F_SIB           0x00000002
@@ -62,7 +65,7 @@
 #define PREFIX_OPERAND_SIZE 0x66
 #define PREFIX_ADDRESS_SIZE 0x67
 
-#pragma pack(push,1)
+#pragma pack(push, 1)
 
 typedef struct {
     uint8_t len;
@@ -112,5 +115,3 @@ unsigned int hde64_disasm(const void *code, hde64s *hs);
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* _HDE64_H_ */

@@ -1,26 +1,23 @@
-﻿/*
+/*
  * Hacker Disassembler Engine 64 C
  * Copyright (c) 2008-2009, Vyacheslav Patkov.
  * All rights reserved.
  *
  */
 
-#if defined(_M_X64) || defined(__x86_64__)
+#include <stdint.h>
+#include <string.h>
+#include "HDE64.h"
+#include "Table64.h"
 
-// #include <kernel.h>
-#include "../include/hde64.h"
-#include "../include/table64.h"
-
-unsigned int hde64_disasm(const void *code, hde64s *hs)
-{
+unsigned int hde64_disasm(const void *code, hde64s *hs) {
     uint8_t x, c, *p = (uint8_t *)code, cflags, opcode, pref = 0;
     uint8_t *ht = hde64_table, m_mod, m_reg, m_rm, disp_size = 0;
     uint8_t op64 = 0;
 
     memset(hs, 0, sizeof(hde64s));
 
-    for (x = 16; x; x--)
-        switch (c = *p++) {
+    for (x = 16; x; x--) switch (c = *p++) {
             case 0xf3:
                 hs->p_rep = c;
                 pref |= PRE_F3;
@@ -33,8 +30,12 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
                 hs->p_lock = c;
                 pref |= PRE_LOCK;
                 break;
-            case 0x26: case 0x2e: case 0x36:
-            case 0x3e: case 0x64: case 0x65:
+            case 0x26:
+            case 0x2e:
+            case 0x36:
+            case 0x3e:
+            case 0x64:
+            case 0x65:
                 hs->p_seg = c;
                 pref |= PRE_SEG;
                 break;
@@ -49,17 +50,15 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
             default:
                 goto pref_done;
         }
-  pref_done:
+pref_done:
 
     hs->flags = (uint32_t)pref << 23;
 
-    if (!pref)
-        pref |= PRE_NONE;
+    if (!pref) pref |= PRE_NONE;
 
     if ((c & 0xf0) == 0x40) {
         hs->flags |= F_PREFIX_REX;
-        if ((hs->rex_w = (c & 0xf) >> 3) && (*p & 0xf8) == 0xb8)
-            op64++;
+        if ((hs->rex_w = (c & 0xf) >> 3) && (*p & 0xf8) == 0xb8) op64++;
         hs->rex_r = (c & 7) >> 2;
         hs->rex_x = (c & 3) >> 1;
         hs->rex_b = c & 1;
@@ -84,11 +83,10 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
     cflags = ht[ht[opcode / 4] + (opcode % 4)];
 
     if (cflags == C_ERROR) {
-      error_opcode:
+    error_opcode:
         hs->flags |= F_ERROR | F_ERROR_OPCODE;
         cflags = 0;
-        if ((opcode & -3) == 0x24)
-            cflags++;
+        if ((opcode & -3) == 0x24) cflags++;
     }
 
     x = 0;
@@ -112,20 +110,18 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
         hs->modrm_rm = m_rm = c & 7;
         hs->modrm_reg = m_reg = (c & 0x3f) >> 3;
 
-        if (x && ((x << m_reg) & 0x80))
-            hs->flags |= F_ERROR | F_ERROR_OPCODE;
+        if (x && ((x << m_reg) & 0x80)) hs->flags |= F_ERROR | F_ERROR_OPCODE;
 
         if (!hs->opcode2 && opcode >= 0xd9 && opcode <= 0xdf) {
             uint8_t t = opcode - 0xd9;
             if (m_mod == 3) {
-                ht = hde64_table + DELTA_FPU_MODRM + t*8;
+                ht = hde64_table + DELTA_FPU_MODRM + t * 8;
                 t = ht[m_reg] << m_rm;
             } else {
                 ht = hde64_table + DELTA_FPU_REG;
                 t = ht[t] << m_reg;
             }
-            if (t & 0x80)
-                hs->flags |= F_ERROR | F_ERROR_OPCODE;
+            if (t & 0x80) hs->flags |= F_ERROR | F_ERROR_OPCODE;
         }
 
         if (pref & PRE_LOCK) {
@@ -149,20 +145,21 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
                             break;
                     }
                 hs->flags |= F_ERROR | F_ERROR_LOCK;
-              no_lock_error:
-                ;
+            no_lock_error:;
             }
         }
 
         if (hs->opcode2) {
             switch (opcode) {
-                case 0x20: case 0x22:
+                case 0x20:
+                case 0x22:
                     m_mod = 3;
                     if (m_reg > 4 || m_reg == 1)
                         goto error_operand;
                     else
                         goto no_error_operand;
-                case 0x21: case 0x23:
+                case 0x21:
+                case 0x23:
                     m_mod = 3;
                     if (m_reg == 4 || m_reg == 5)
                         goto error_operand;
@@ -195,7 +192,7 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
             }
             for (; ht != table_end; ht += 2)
                 if (*ht++ == opcode) {
-                    if ((*ht++ & pref) && !((*ht << m_reg) & 0x80))
+                    if (*ht++ & pref && !((*ht << m_reg) & 0x80))
                         goto error_operand;
                     else
                         break;
@@ -203,13 +200,13 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
             goto no_error_operand;
         } else if (hs->opcode2) {
             switch (opcode) {
-                case 0x50: case 0xd7: case 0xf7:
-                    if (pref & (PRE_NONE | PRE_66))
-                        goto error_operand;
+                case 0x50:
+                case 0xd7:
+                case 0xf7:
+                    if (pref & (PRE_NONE | PRE_66)) goto error_operand;
                     break;
                 case 0xd6:
-                    if (pref & (PRE_F2 | PRE_F3))
-                        goto error_operand;
+                    if (pref & (PRE_F2 | PRE_F3)) goto error_operand;
                     break;
                 case 0xc5:
                     goto error_operand;
@@ -218,9 +215,9 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
         } else
             goto no_error_operand;
 
-      error_operand:
+    error_operand:
         hs->flags |= F_ERROR | F_ERROR_OPERAND;
-      no_error_operand:
+    no_error_operand:
 
         c = *p++;
         if (m_reg <= 1) {
@@ -233,20 +230,16 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
         switch (m_mod) {
             case 0:
                 if (pref & PRE_67) {
-                    if (m_rm == 6)
-                        disp_size = 2;
-                } else
-                    if (m_rm == 5)
-                        disp_size = 4;
+                    if (m_rm == 6) disp_size = 2;
+                } else if (m_rm == 5)
+                    disp_size = 4;
                 break;
             case 1:
                 disp_size = 1;
                 break;
             case 2:
                 disp_size = 2;
-                if (!(pref & PRE_67))
-                    disp_size <<= 1;
-                break;
+                if (!(pref & PRE_67)) disp_size <<= 1;
         }
 
         if (m_mod != 3 && m_rm == 4) {
@@ -255,8 +248,7 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
             hs->sib = c;
             hs->sib_scale = c >> 6;
             hs->sib_index = (c & 0x3f) >> 3;
-            if ((hs->sib_base = c & 7) == 5 && !(m_mod & 1))
-                disp_size = 4;
+            if ((hs->sib_base = c & 7) == 5 && !(m_mod & 1)) disp_size = 4;
         }
 
         p--;
@@ -272,7 +264,6 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
             case 4:
                 hs->flags |= F_DISP32;
                 hs->disp.disp32 = *(uint32_t *)p;
-                break;
         }
         p += disp_size;
     } else if (pref & PRE_LOCK)
@@ -300,9 +291,8 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
             goto imm16_ok;
     }
 
-
     if (cflags & C_IMM16) {
-      imm16_ok:
+    imm16_ok:
         hs->flags |= F_IMM16;
         hs->imm.imm16 = *(uint16_t *)p;
         p += 2;
@@ -313,7 +303,7 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
     }
 
     if (cflags & C_REL32) {
-      rel32_ok:
+    rel32_ok:
         hs->flags |= F_IMM32 | F_RELATIVE;
         hs->imm.imm32 = *(uint32_t *)p;
         p += 4;
@@ -322,14 +312,12 @@ unsigned int hde64_disasm(const void *code, hde64s *hs)
         hs->imm.imm8 = *p++;
     }
 
-  disasm_done:
+disasm_done:
 
-    if ((hs->len = (uint8_t)(p-(uint8_t *)code)) > 15) {
+    if ((hs->len = (uint8_t)(p - (uint8_t *)code)) > 15) {
         hs->flags |= F_ERROR | F_ERROR_LENGTH;
         hs->len = 15;
     }
 
     return (unsigned int)hs->len;
 }
-
-#endif // defined(_M_X64) || defined(__x86_64__)
