@@ -1049,6 +1049,8 @@ bool cmd_enable_toolbox(){
       return false;
     }
 
+    etaHEN_log("waiting for 2secs");
+    sleep(2);
     while (!if_exists("/system_tmp/toolbox_online")) {
       etaHEN_log("waiting for toolbox to start");
       sleep(1);

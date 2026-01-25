@@ -702,6 +702,7 @@ int main(int argc, char const *argv[]) {
   if (hooked) {
     return 0;
   }
+  sleep(2);
 
   static ssize_t(*read)(int fd, void* buf, size_t count) = nullptr;
   static int (*sceAppInstUtilInstallByPackage)(MetaInfo * arg1, SceAppInstallPkgInfo * pkg_info, PlayGoInfo * arg2) = nullptr;
